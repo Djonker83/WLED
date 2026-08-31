@@ -632,10 +632,14 @@ Segment &Segment::setName(const char *newName) {
   if (newName) {
     const int newLen = min(strlen(newName), (size_t)WLED_MAX_SEGNAME_LEN);
     if (newLen) {
-      if (name) p_free(name); // free old name
-      name = static_cast<char*>(allocate_buffer(newLen+1, BFRALLOC_PREFER_PSRAM));
-      if (mode == FX_MODE_2DSCROLLTEXT) startTransition(strip.getTransition(), true); // if the name changes in scrolling text mode, we need to copy the segment for blending
-      if (name) strlcpy(name, newName, newLen+1);
+      char *newBuf = static_cast<char*>(allocate_buffer(newLen+1, BFRALLOC_PREFER_PSRAM));
+      if (newBuf) {
+        strlcpy(newBuf, newName, newLen+1);
+        if (mode == FX_MODE_2DSCROLLTEXT) startTransition(strip.getTransition(), true); // if the name changes in scrolling text mode, we need to copy the segment for blending
+        char *oldName = name;
+        name = newBuf;
+        if (oldName) p_free(oldName);
+      }
       return *this;
     }
   }
@@ -1956,8 +1960,9 @@ void WS2812FX::resetSegments() {
   if (isServicing()) return;
   _segments.clear();          // destructs all Segment as part of clearing
   _segments.emplace_back(0, isMatrix ? Segment::maxWidth : _length, 0, isMatrix ? Segment::maxHeight : 1);
-  if(_segments.size() == 0) {
-    _segments.emplace_back(); // if out of heap, create a default segment
+  if (getActiveSegmentsNum() == 0) {
+    _segments.clear();        // free failed segment
+    _segments.emplace_back(); // if out of heap, create a default 30 pixel segment
     errorFlag = ERR_NORAM_PX;
   }
   _segments.shrink_to_fit();  // just in case ...
@@ -2034,6 +2039,7 @@ void WS2812FX::makeAutoSegments(bool forceReset) {
       #endif
     }
   }
+  if (getActiveSegmentsNum() == 0) resetSegments(); // fallback if auto segment creation failed
   _mainSegment = 0;
 
   fixInvalidSegments();
